@@ -341,5 +341,105 @@ def create_pipeline():
 
 
     
+import pandas as pd
+import numpy as np
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LinearRegression
+import pickle
+
+
+class InfValueHandler(BaseEstimator, TransformerMixin):
+    """Replace inf and -inf values with NaN"""
+    def fit(self, X, y=None):
+        return self
+    def transform(self, X):
+        return pd.DataFrame(X).replace([np.inf, -np.inf], np.nan)
+
+class LeakyFeatureRemover(BaseEstimator, TransformerMixin):
+    """Drops predefined leaky features if they exist"""
+    def __init__(self, target_col):
+        self.target_col = target_col
+        self.leaky_features = [
+            'compreesive_strength_mpa','compressive_strength_duplicate',
+            'compressive_strength_mpas'
+        ]
+    def fit(self, X, y=None):
+        return self
+    def transform(self, X):
+        return X.drop(
+            columns=[f for f in self.leaky_features if f in X.columns],
+            errors='ignore'
+        )
+
+class DerivedFeatureAdder(BaseEstimator, TransformerMixin):
+    """Adds cement_water_ratio and agg_cement_ratio features"""
+    def fit(self, X, y=None):
+        return self
+    def transform(self, X):
+        X = X.copy()
+        if 'cement' in X.columns and 'water' in X.columns:
+            X['cement_water_ratio'] = X['cement'] / (X['water'] + 1)
+        if 'fine_aggregate' in X.columns and 'coarse_aggregate' in X.columns and 'cement' in X.columns:
+            X['agg_cement_ratio'] = (X['fine_aggregate'] + X['coarse_aggregate']) / (X['cement'] + 1)
+        return X
+
+
+
+possible_targets = [c for c in df.columns if 'strength' in c.lower()]
+if possible_targets:
+    target_col = possible_targets[0]
+else:
+    raise ValueError("No target column found containing 'strength'.")
+
+print(f" Using target column: {target_col}")
+numeric_cols = df.drop(columns=[target_col], errors='ignore').select_dtypes(include=['int64', 'float64']).columns
+categorical_cols = df.drop(columns=[target_col], errors='ignore').select_dtypes(include=['object']).columns
+boolean_cols = df.drop(columns=[target_col], errors='ignore').select_dtypes(include=['bool']).columns
+
+
+
+numeric_transformer = Pipeline([
+    ('imputer', SimpleImputer(strategy='mean')),
+    ('scaler', StandardScaler())
+])
+
+categorical_transformer = Pipeline([
+    ('imputer', SimpleImputer(strategy='most_frequent')),
+    ('onehot', OneHotEncoder(handle_unknown='ignore'))
+])
+
+boolean_transformer = Pipeline([
+    ('imputer', SimpleImputer(strategy='most_frequent'))
+])
+
+preprocessor = ColumnTransformer([
+    ('num', numeric_transformer, numeric_cols),
+    ('cat', categorical_transformer, categorical_cols),
+    ('bool', boolean_transformer, boolean_cols)
+])
+
+
+final_pipeline = Pipeline([
+    ('handle_inf', InfValueHandler()),
+    ('drop_leaky', LeakyFeatureRemover(target_col=target_col)),
+    ('add_features', DerivedFeatureAdder()),
+    ('preprocessor', preprocessor),('model', LinearRegression())
+])
+
+
+X_full = df.drop(columns=[target_col], errors='ignore')
+y_full = df[target_col]
+
+final_pipeline.fit(X_full, y_full)
+
+with open("dev_pathak.pkl", "wb") as f:
+    pickle.dump(final_pipeline, f)
+
+print("Pipeline created, trained, and saved successfully!")
+
 
 
