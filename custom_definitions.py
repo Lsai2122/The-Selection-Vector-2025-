@@ -624,7 +624,7 @@ class Leela_Venkata_Sai_Nerella2(BaseEstimator, TransformerMixin):
                 except:
                     return None
             return x.get("water") if isinstance(x, dict) else None
-        cols_dropped = ["random_noise","batch_id","leaky_strength_log","static_col","nan_col","inspection_timestamp","pseudo_target","compressive_strength_mpa","strength_category","Unnamed: 0","Row_ID","weird_col",'total_kg','aggregates_kg','cementitious_kg','mixing_water_kg','chemical_admixture_kg','gravel_aggregate_kg','sand_aggregate_kg','portland_cement_kg','ground_slag_kg','coal_ash_kg',"is_valid_strength","w_c_ratio","total_binder_kg","aggregate_binder_ratio","cement_ratio_total","water_ratio_total","supplementary_ratio"]
+        cols_dropped = ["random_noise","batch_id","leaky_strength_log","static_col","nan_col","inspection_timestamp","pseudo_target","compreesive_strength_mpa","strength_category","Unnamed: 0","Row_ID","weird_col",'total_kg','aggregates_kg','cementitious_kg','mixing_water_kg','chemical_admixture_kg','gravel_aggregate_kg','sand_aggregate_kg','portland_cement_kg','ground_slag_kg','coal_ash_kg',"is_valid_strength","w_c_ratio","total_binder_kg","aggregate_binder_ratio","cement_ratio_total","water_ratio_total","supplementary_ratio"]
         from datetime import datetime
         import pandas as pd
 
@@ -727,6 +727,7 @@ class Leela_Venkata_Sai_Nerella2(BaseEstimator, TransformerMixin):
         X = X.drop(cols_dropped,axis=1)
         
         return X
+
 
 
 
