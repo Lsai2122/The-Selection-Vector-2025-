@@ -624,11 +624,42 @@ class Leela_Venkata_Sai_Nerella2(BaseEstimator, TransformerMixin):
                 except:
                     return None
             return x.get("water") if isinstance(x, dict) else None
-        cols_dropped = ["random_noise","batch_id","leaky_strength_log","static_col","nan_col","inspection_timestamp","pseudo_target","strength_category","Unnamed: 0","Row_ID","weird_col",'total_kg','aggregates_kg','cementitious_kg','mixing_water_kg','chemical_admixture_kg','gravel_aggregate_kg','sand_aggregate_kg','portland_cement_kg','ground_slag_kg','coal_ash_kg',"is_valid_strength","w_c_ratio","total_binder_kg","aggregate_binder_ratio","cement_ratio_total","water_ratio_total","supplementary_ratio","compreesive_strength_mpa"]
+        cols_dropped = ["random_noise","batch_id","leaky_strength_log","static_col","nan_col","inspection_timestamp","pseudo_target","compressive_strength_mpa","strength_category","Unnamed: 0","Row_ID","weird_col",'total_kg','aggregates_kg','cementitious_kg','mixing_water_kg','chemical_admixture_kg','gravel_aggregate_kg','sand_aggregate_kg','portland_cement_kg','ground_slag_kg','coal_ash_kg',"is_valid_strength","w_c_ratio","total_binder_kg","aggregate_binder_ratio","cement_ratio_total","water_ratio_total","supplementary_ratio"]
+        from datetime import datetime
+        import pandas as pd
+
+        def try_parse(date_str):
+            if pd.isna(date_str) or date_str == "":
+                return None
+            
+            if isinstance(date_str, datetime):
+                return date_str
+
+            formats = [
+                "%Y-%m-%d %H:%M:%S",
+                "%d-%m-%Y %H.%M",
+                "%Y-%m-%d",
+                "%d/%m/%Y",
+                "%d-%m-%Y",
+                "%Y/%m/%d",
+                "%Y.%m.%d %H:%M",
+                "%d %b %Y",
+                "%d %B %Y",
+            ]
+            
+            for fmt in formats:
+                try:
+                    return datetime.strptime(date_str, fmt)
+                except ValueError:
+                    continue
+
+            raise ValueError(f"Date format not supported: {date_str}")
+
         days = [
-                (datetime.strptime(j, "%Y-%m-%d %H:%M:%S") - datetime.strptime(i, "%Y-%m-%d")).days
-                for i, j in zip(X["last_modified"], X["inspection_timestamp"])
-                ]
+            (try_parse(j) - try_parse(i)).days
+            for i, j in zip(X["last_modified"], X["inspection_timestamp"])
+        ]
+
         grade_map = {
             '32': 32,
             '32.5': 33,   
@@ -696,5 +727,6 @@ class Leela_Venkata_Sai_Nerella2(BaseEstimator, TransformerMixin):
         X = X.drop(cols_dropped,axis=1)
         
         return X
+
 
 
