@@ -1,13 +1,16 @@
+# run_evaluation.py
 
+# --- Core Python & Evaluation Libraries ---
 import os
 import pandas as pd
 import joblib
 import argparse
 
-
+# --- Scikit-learn for metrics ---
 from sklearn.metrics import accuracy_score, r2_score
 from sklearn.pipeline import Pipeline
 
+# --- Custom Definitions ---
 # This line is CRITICAL. It imports all approved custom classes.
 from custom_definitions import *
 
