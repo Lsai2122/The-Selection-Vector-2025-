@@ -484,3 +484,246 @@ class ConcretePreprocessor(BaseEstimator, TransformerMixin):
         return X
         
 #===============Mouryagna====================
+
+
+
+#==================LeelaVenkataSai_Nerella=============
+from datetime import datetime
+import json
+class Leela_Venkata_Sai_Nerella2(BaseEstimator, TransformerMixin):
+    def fit(self, X,y=None):
+        X = self.data_cols(X)
+        self.X = X
+        return self
+    def transform(self,X):
+        X = self.data_cols(X)
+        return X
+    def data_cols(self,X):
+        def normalize_approval(x):
+            if pd.isnull(x):
+                return np.nan
+            x = str(x).strip().lower()
+            if x in ["yes", "y", "1"]:
+                return 1
+            elif x in ["no", "n", "0"]:
+                return 0
+            else:
+                return np.nan
+        def extract_water(x):
+            if pd.isnull(x):
+                return None
+            if isinstance(x, str):
+                try:
+                    x = json.loads(x.replace("'", '"'))
+                except:
+                    return None
+            return x.get("water") if isinstance(x, dict) else None
+        cols_dropped = ["random_noise","batch_id","leaky_strength_log","static_col","nan_col","inspection_timestamp","pseudo_target","compressive_strength_mpas","compressive_strength_duplicate","compressive_strength_mpa_str","compressive_strength_mpa","strength_category","Unnamed: 0","Row_ID","weird_col",'total_kg','aggregates_kg','cementitious_kg','mixing_water_kg','chemical_admixture_kg','gravel_aggregate_kg','sand_aggregate_kg','portland_cement_kg','ground_slag_kg','coal_ash_kg',"is_valid_strength","w_c_ratio","total_binder_kg","aggregate_binder_ratio","cement_ratio_total","water_ratio_total","supplementary_ratio","compreesive_strength_mpa"]
+        days = [
+                (datetime.strptime(j, "%Y-%m-%d %H:%M:%S") - datetime.strptime(i, "%Y-%m-%d")).days
+                for i, j in zip(X["last_modified"], X["inspection_timestamp"])
+                ]
+        grade_map = {
+            '32': 32,
+            '32.5': 33,   
+            '43': 43,
+            '43a': 43,
+            '53': 53,
+            'fifty three': 53
+        }
+        rating_map={
+            'A++':6,
+            'A-':3,
+            'A+':5,
+            'A':4,
+            'AA':7,
+            'C':1,
+            'B':2
+        }
+        X["days_passed"]=days
+        X["days_passed"]=X["days_passed"].apply(lambda x: x if x>0 else 0)
+        X["time_since_casting"] = X["time_since_casting"].apply(
+            lambda x: int(float(str(x).split(" ")[0])) if pd.notnull(x) else None
+        )
+        X["waiting_time"]=X["specimen_age_days"]-X["time_since_casting"]
+        X = X.drop(["time_since_casting","specimen_age_days"],axis=1)
+        X["is_approved"] = X["is_approved"].apply(normalize_approval)
+        X["cement_grade"] = X["cement_grade"].astype(str).str.strip().str.lower()
+        X["cement_grade"] = X["cement_grade"].map(grade_map)
+        X["supplier_rating"] = X["supplier_rating"].map(rating_map)
+        X["json_notes"] = X["json_notes"].apply(extract_water)
+
+        """feature engineering"""
+       # Step 1: Create intermediate totals
+        X['cementitious_kg'] = (
+            X['portland_cement_kg'] +
+            X['ground_slag_kg'] +
+            X['coal_ash_kg']
+        )
+
+        X['aggregates_kg'] = (
+            X['gravel_aggregate_kg'] +
+            X['sand_aggregate_kg']
+        )
+
+        X['total_kg'] = (
+            X['portland_cement_kg'] +
+            X['ground_slag_kg'] +
+            X['coal_ash_kg'] +
+            X['mixing_water_kg'] +
+            X['chemical_admixture_kg'] +
+            X['gravel_aggregate_kg'] +
+            X['sand_aggregate_kg']
+        )
+
+        # Step 2: Create ratio-based features
+        X['w_c_ratio'] = X['mixing_water_kg'] / X['cementitious_kg']
+        X['admixture_ratio'] = X['chemical_admixture_kg'] / X['cementitious_kg']
+        X['gravel_sand_ratio'] = X['gravel_aggregate_kg'] / X['sand_aggregate_kg']
+        X['agg_cement_ratio'] = X['aggregates_kg'] / X['cementitious_kg']
+        X['cement_ratio_total'] = X['cementitious_kg'] / X['total_kg']
+        X['water_ratio_total'] = X['mixing_water_kg'] / X['total_kg']
+
+
+        X.replace([np.inf, -np.inf], np.nan, inplace=True)
+        X = X.drop("last_modified",axis=1,errors='ignore')
+        X = X.drop(cols_dropped,axis=1)
+        
+        return X
+
+#======================LeelaVenktaSaiNerella======
+
+from sklearn.base import BaseEstimator, TransformerMixin
+from datetime import datetime
+import json
+class Leela_Venkata_Sai_Nerella2(BaseEstimator, TransformerMixin):
+    def fit(self, X,y=None):
+        X = self.data_cols(X)
+        self.X = X
+        return self
+    def transform(self,X):
+        X = self.data_cols(X)
+        return X
+    def data_cols(self,X):
+        def normalize_approval(x):
+            if pd.isnull(x):
+                return np.nan
+            x = str(x).strip().lower()
+            if x in ["yes", "y", "1"]:
+                return 1
+            elif x in ["no", "n", "0"]:
+                return 0
+            else:
+                return np.nan
+        def extract_water(x):
+            if pd.isnull(x):
+                return None
+            if isinstance(x, str):
+                try:
+                    x = json.loads(x.replace("'", '"'))
+                except:
+                    return None
+            return x.get("water") if isinstance(x, dict) else None
+        cols_dropped = ["random_noise","batch_id","leaky_strength_log","static_col","nan_col","inspection_timestamp","pseudo_target","compressive_strength_mpas","compressive_strength_duplicate","compressive_strength_mpa_str","compressive_strength_mpa","strength_category","Unnamed: 0","Row_ID","weird_col",'total_kg','aggregates_kg','cementitious_kg','mixing_water_kg','chemical_admixture_kg','gravel_aggregate_kg','sand_aggregate_kg','portland_cement_kg','ground_slag_kg','coal_ash_kg',"is_valid_strength","w_c_ratio","total_binder_kg","aggregate_binder_ratio","cement_ratio_total","water_ratio_total","supplementary_ratio","compreesive_strength_mpa"]
+        from datetime import datetime
+        import pandas as pd
+
+        def try_parse(date_str):
+            if pd.isna(date_str) or date_str == "":
+                return None
+            
+            if isinstance(date_str, datetime):
+                return date_str
+
+            formats = [
+                "%Y-%m-%d %H:%M:%S",
+                "%d-%m-%Y %H.%M",
+                "%Y-%m-%d",
+                "%d/%m/%Y",
+                "%d-%m-%Y",
+                "%Y/%m/%d",
+                "%Y.%m.%d %H:%M",
+                "%d %b %Y",
+                "%d %B %Y",
+            ]
+            
+            for fmt in formats:
+                try:
+                    return datetime.strptime(date_str, fmt)
+                except ValueError:
+                    continue
+
+            raise ValueError(f"Date format not supported: {date_str}")
+
+        days = [
+            (try_parse(j) - try_parse(i)).days
+            for i, j in zip(X["last_modified"], X["inspection_timestamp"])
+        ]
+
+        grade_map = {
+            '32': 32,
+            '32.5': 33,   
+            '43': 43,
+            '43a': 43,
+            '53': 53,
+            'fifty three': 53
+        }
+        rating_map={
+            'A++':6,
+            'A-':3,
+            'A+':5,
+            'A':4,
+            'AA':7,
+            'C':1,
+            'B':2
+        }
+        X["days_passed"]=days
+        X["days_passed"]=X["days_passed"].apply(lambda x: x if x>0 else 0)
+        X["time_since_casting"] = X["time_since_casting"].apply(
+            lambda x: int(float(str(x).split(" ")[0])) if pd.notnull(x) else None
+        )
+        X["waiting_time"]=X["specimen_age_days"]-X["time_since_casting"]
+        X = X.drop(["time_since_casting","specimen_age_days"],axis=1)
+        X["is_approved"] = X["is_approved"].apply(normalize_approval)
+        X["cement_grade"] = X["cement_grade"].astype(str).str.strip().str.lower()
+        X["cement_grade"] = X["cement_grade"].map(grade_map)
+        X["supplier_rating"] = X["supplier_rating"].map(rating_map)
+        X["json_notes"] = X["json_notes"].apply(extract_water)
+
+        """feature engineering"""
+       # Step 1: Create intermediate totals
+        X['cementitious_kg'] = (
+            X['portland_cement_kg'] +
+            X['ground_slag_kg'] +
+            X['coal_ash_kg']
+        )
+
+        X['aggregates_kg'] = (
+            X['gravel_aggregate_kg'] +
+            X['sand_aggregate_kg']
+        )
+
+        X['total_kg'] = (
+            X['portland_cement_kg'] +
+            X['ground_slag_kg'] +
+            X['coal_ash_kg'] +
+            X['mixing_water_kg'] +
+            X['chemical_admixture_kg'] +
+            X['gravel_aggregate_kg'] +
+            X['sand_aggregate_kg']
+        )
+
+        # Step 2: Create ratio-based features
+        X['w_c_ratio'] = X['mixing_water_kg'] / X['cementitious_kg']
+        X['admixture_ratio'] = X['chemical_admixture_kg'] / X['cementitious_kg']
+        X['gravel_sand_ratio'] = X['gravel_aggregate_kg'] / X['sand_aggregate_kg']
+        X['agg_cement_ratio'] = X['aggregates_kg'] / X['cementitious_kg']
+        X['cement_ratio_total'] = X['cementitious_kg'] / X['total_kg']
+        X['water_ratio_total'] = X['mixing_water_kg'] / X['total_kg']
+
+
+        X.replace([np.inf, -np.inf], np.nan, inplace=True)
+        X = X.drop("last_modified",axis=1,errors='ignore')
+        X = X.drop(cols_dropped,axis=1)
+        
+        return X
