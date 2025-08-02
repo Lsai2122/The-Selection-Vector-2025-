@@ -11,7 +11,7 @@ from imblearn.pipeline import Pipeline as ImbPipeline
 from imblearn.over_sampling import SMOTE   
 from sklearn.linear_model import LogisticRegression   
 from splitter import split_columns
-
+import imblearn
 import re
 
 
@@ -64,20 +64,21 @@ from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.linear_model import LinearRegression
 
-# Define custom column dropper class
 class ColumnDropper(BaseEstimator, TransformerMixin):
     def _init_(self, cols_to_drop=None):
         self.cols_to_drop = cols_to_drop or []
-
-    def fit(self, X, y=None):
-        return self
-
+    def fit(self, X, y=None): return self
     def transform(self, X):
         return X.drop(columns=self.cols_to_drop, errors='ignore')
 
-# Define classes for feature engineering
-class CementGradeParser:
-    def _call_(self, X):
+class InfinityRemover(BaseEstimator, TransformerMixin):
+    def fit(self, X, y=None): return self
+    def transform(self, X):
+        return X.replace([np.inf, -np.inf], np.nan)
+
+class CementGradeParserTransformer(BaseEstimator, TransformerMixin):
+    def fit(self, X, y=None): return self
+    def transform(self, X):
         def parse(val):
             try:
                 return float(val)
@@ -89,74 +90,150 @@ class CementGradeParser:
                 try:
                     return w2n.word_to_num(val)
                 except:
-                    return None
+                    return np.nan
+        X = X.copy()
         X['cement_grade'] = X['cement_grade'].apply(parse)
         return X
 
-class DatePreprocessor:
-    def _call_(self, X):
+class DatePreprocessorTransformer(BaseEstimator, TransformerMixin):
+    def fit(self, X, y=None): return self
+    def transform(self, X):
+        X = X.copy()
         X['last_modified'] = pd.to_datetime(X['last_modified'], errors='coerce')
-        X['last_modified_year'] = X['last_modified'].dt.year.astype('int64')
-        X['last_modified_month'] = X['last_modified'].dt.month.astype('int64')
-        X['last_modified_day'] = X['last_modified'].dt.day.astype('int64')
-        X['last_modified_weekday'] = X['last_modified'].dt.dayofweek.astype('int64')
+        X['last_modified_year'] = X['last_modified'].dt.year.astype('Int64')
+        X['last_modified_month'] = X['last_modified'].dt.month.astype('Int64')
+        X['last_modified_day'] = X['last_modified'].dt.day.astype('Int64')
+        X['last_modified_weekday'] = X['last_modified'].dt.dayofweek.astype('Int64')
         X.drop(columns=['last_modified'], inplace=True)
 
         X['inspection_timestamp'] = pd.to_datetime(X['inspection_timestamp'], errors='coerce')
-        X['inspection_year'] = X['inspection_timestamp'].dt.year.fillna(-1).astype('int64')
-        X['inspection_month'] = X['inspection_timestamp'].dt.month.fillna(-1).astype('int64')
-        X['inspection_day'] = X['inspection_timestamp'].dt.day.fillna(-1).astype('int64')
-        X['inspection_weekday'] = X['inspection_timestamp'].dt.dayofweek.fillna(-1).astype('int64')
+        X['inspection_year'] = X['inspection_timestamp'].dt.year.astype('Int64')
+        X['inspection_month'] = X['inspection_timestamp'].dt.month.astype('Int64')
+        X['inspection_day'] = X['inspection_timestamp'].dt.day.astype('Int64')
+        X['inspection_weekday'] = X['inspection_timestamp'].dt.dayofweek.astype('Int64')
         X.drop(columns=['inspection_timestamp'], inplace=True)
         return X
 
-class CategoryConverter:
-    def _call_(self, X):
+class CategoryConverterTransformer(BaseEstimator, TransformerMixin):
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        X = X.copy()
+
+        # Map approval values to binary
         approval_mapping = {'yes': True, 'y': True, '1': True, 'no': False, 'n': False, '0': False}
-        X['is_approved'] = X['is_approved'].astype(str).str.strip().str.lower().map(approval_mapping).astype(int)
+        if 'is_approved' not in X.columns:
+            X['is_approved'] = 0
+        else:
+            X['is_approved'] = X['is_approved'].astype(str).str.strip().str.lower().map(approval_mapping)
+            X['is_approved'] = X['is_approved'].fillna(0)
+        X['is_approved'] = X['is_approved'].astype(int)
+
+        # Map supplier rating to numeric values
         rating_map = {'A ++': 6, 'A+': 5, 'AA': 4.5, 'A': 4, 'A-': 3.5, 'B': 3, 'C': 2}
-        X['supplier_rating'] = X['supplier_rating'].map(rating_map)
-        X['is_valid_strength'] = X['is_valid_strength'].astype(int)
-        X['static_col'] = X['static_col'].astype(int)
+        if 'supplier_rating' not in X.columns:
+            X['supplier_rating'] = 0
+        else:
+            X['supplier_rating'] = X['supplier_rating'].map(rating_map).fillna(0)
+
+        # Ensure certain columns are numeric ints
+        for col in ['is_valid_strength', 'static_col']:
+            if col not in X.columns:
+                X[col] = 0
+            else:
+                X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0)
+            X[col] = X[col].astype(int)
+
         return X
 
-class TimeDeltaAndRatios:
-    def _call_(self, X):
+
+class TimeDeltaAndRatiosTransformer(BaseEstimator, TransformerMixin):
+    def fit(self, X, y=None): return self
+    def transform(self, X):
+        X = X.copy()
         X['time_since_casting'] = pd.to_timedelta(X['time_since_casting'], errors='coerce')
         X['time_since_casting_days'] = X['time_since_casting'].dt.total_seconds() / (24 * 3600)
         X.drop('time_since_casting', axis=1, inplace=True)
+
         X['water_binder_ratio'] = X['mixing_water_kg'] / (X['total_binder_kg'] + 1e-6)
         X['admixture_binder_ratio'] = X['chemical_admixture_kg'] / (X['total_binder_kg'] + 1e-6)
         return X
 
-class RedundantDropper:
-    def _call_(self, X):
-        X.drop(columns=[
+class RedundantDropperTransformer(BaseEstimator, TransformerMixin):
+    def fit(self, X, y=None): return self
+    def transform(self, X):
+        return X.drop(columns=[
             'time_since_casting_days', 'days_since_last_modified',
             'days_since_inspection', 'random_noise'
-        ], inplace=True, errors='ignore')
-        return X
+        ], errors='ignore')
 
-class FinalCleaner:
-    def _call_(self, X):
-        num_cols = X.select_dtypes(include=['float64', 'int64']).columns
-        imputer = SimpleImputer(strategy='mean')
-        X[num_cols] = imputer.fit_transform(X[num_cols])
-        scaler = StandardScaler()
-        X[num_cols] = scaler.fit_transform(X[num_cols])
-        return X
+class FinalCleanerTransformer(BaseEstimator, TransformerMixin):
+    def _init_(self):
+        self.imputer = SimpleImputer(strategy='mean')
+        self.scaler = StandardScaler()
+        self.num_cols = None
 
+    def fit(self, X, y=None):
+        self.num_cols = X.select_dtypes(include=[np.number]).columns
+        X_imputed = self.imputer.fit_transform(X[self.num_cols])
+        self.scaler.fit(X_imputed)
+        return self
+
+    def transform(self, X):
+        if self.num_cols is None:
+            raise RuntimeError("You must call fit() before transform().")
+        X = X.copy()
+        X[self.num_cols] = self.imputer.transform(X[self.num_cols])
+        X[self.num_cols] = self.scaler.transform(X[self.num_cols])
+        return X
 #===============Rudra=============
 
 #==================================shrihari=====================================================================
 
+import pandas as pd
+import numpy as np
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import Ridge
+
+
 class FinalFeatureEngineer(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        self.raw_features = [
+            'portland_cement_kg', 'ground_slag_kg', 'coal_ash_kg', 'mixing_water_kg',
+            'chemical_admixture_kg', 'gravel_aggregate_kg', 'sand_aggregate_kg', 'specimen_age_days'
+        ]
+        self.column_mapping = {
+            'portland_cement_kg': 'Cement_component_1kg_in_a_m3_mixture',
+            'ground_slag_kg': 'Blast_Furnace_Slag_component_2kg_in_a_m3_mixture',
+            'coal_ash_kg': 'Fly_Ash_component_3kg_in_a_m3_mixture',
+            'mixing_water_kg': 'Water_component_4kg_in_a_m3_mixture',
+            'chemical_admixture_kg': 'Superplasticizer_component_5kg_in_a_m3_mixture',
+            'gravel_aggregate_kg': 'Coarse_Aggregate_component_6kg_in_a_m3_mixture',
+            'sand_aggregate_kg': 'Fine_Aggregate_component_7kg_in_a_m3_mixture',
+            'specimen_age_days': 'Age_day'
+        }
+
     def fit(self, X, y=None):
-        self.columns_ = X.columns
         return self
 
     def transform(self, X, y=None):
-        df = pd.DataFrame(X, columns=self.columns_)
+        df = X[self.raw_features].copy()
+
+        for column in df.columns:
+            if df[column].dtype in ['int64', 'float64']:
+                Q1 = df[column].quantile(0.25)
+                Q3 = df[column].quantile(0.75)
+                IQR = Q3 - Q1
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                df[column] = np.where(df[column] > upper_bound, upper_bound, df[column])
+                df[column] = np.where(df[column] < lower_bound, lower_bound, df[column])
+        
+        df = df.rename(columns=self.column_mapping)
 
         cement = df['Cement_component_1kg_in_a_m3_mixture'].replace(0, 0.0001)
         df['total_binder'] = (
@@ -185,151 +262,225 @@ class FinalFeatureEngineer(BaseEstimator, TransformerMixin):
         ])
         
         return df
-    
-#======devpathak======
-import pandas as pd
-import numpy as np
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LinearRegression
-import pickle
 
 
-class InfValueHandler(BaseEstimator, TransformerMixin):
-    """Replace inf and -inf values with NaN"""
-    def fit(self, X, y=None):
-        return self
-    def transform(self, X):
-        return pd.DataFrame(X).replace([np.inf, -np.inf], np.nan)
-
-class LeakyFeatureRemover(BaseEstimator, TransformerMixin):
-    """Drops predefined leaky features if they exist"""
-    def __init__(self, target_col):
-        self.target_col = target_col
-        self.leaky_features = [
-            'compreesive_strength_mpa','compressive_strength_duplicate',
-            'compressive_strength_mpas'
-        ]
-    def fit(self, X, y=None):
-        return self
-    def transform(self, X):
-        return X.drop(
-            columns=[f for f in self.leaky_features if f in X.columns],
-            errors='ignore'
-        )
-
-class DerivedFeatureAdder(BaseEstimator, TransformerMixin):
-    """Adds cement_water_ratio and agg_cement_ratio features"""
-    def fit(self, X, y=None):
-        return self
-    def transform(self, X):
-        X = X.copy()
-        if 'cement' in X.columns and 'water' in X.columns:
-            X['cement_water_ratio'] = X['cement'] / (X['water'] + 1)
-        if 'fine_aggregate' in X.columns and 'coarse_aggregate' in X.columns and 'cement' in X.columns:
-            X['agg_cement_ratio'] = (X['fine_aggregate'] + X['coarse_aggregate']) / (X['cement'] + 1)
-        return X
-
-
-
-possible_targets = [c for c in df.columns if 'strength' in c.lower()]
-if possible_targets:
-    target_col = possible_targets[0]
-else:
-    raise ValueError("No target column found containing 'strength'.")
-
-print(f" Using target column: {target_col}")
-numeric_cols = df.drop(columns=[target_col], errors='ignore').select_dtypes(include=['int64', 'float64']).columns
-categorical_cols = df.drop(columns=[target_col], errors='ignore').select_dtypes(include=['object']).columns
-boolean_cols = df.drop(columns=[target_col], errors='ignore').select_dtypes(include=['bool']).columns
-
-
-
-numeric_transformer = Pipeline([
-    ('imputer', SimpleImputer(strategy='mean')),
-    ('scaler', StandardScaler())
-])
-
-categorical_transformer = Pipeline([
-    ('imputer', SimpleImputer(strategy='most_frequent')),
-    ('onehot', OneHotEncoder(handle_unknown='ignore'))
-])
-
-boolean_transformer = Pipeline([
-    ('imputer', SimpleImputer(strategy='most_frequent'))
-])
-
-preprocessor = ColumnTransformer([
-    ('num', numeric_transformer, numeric_cols),
-    ('cat', categorical_transformer, categorical_cols),
-    ('bool', boolean_transformer, boolean_cols)
-])
-
-
-final_pipeline = Pipeline([
-    ('handle_inf', InfValueHandler()),
-    ('drop_leaky', LeakyFeatureRemover(target_col=target_col)),
-    ('add_features', DerivedFeatureAdder()),
-    ('preprocessor', preprocessor),('model', LinearRegression())
-])
-
-
-X_full = df.drop(columns=[target_col], errors='ignore')
-y_full = df[target_col]
-
-final_pipeline.fit(X_full, y_full)
-
-with open("dev_pathak.pkl", "wb") as f:
-    pickle.dump(final_pipeline, f)
-
-print("Pipeline created, trained, and saved successfully!")
-
-#=======devpathak======
-
-=======
-column_mapping = {
-    'portland_cement_kg': 'Cement_component_1kg_in_a_m3_mixture',
-    'ground_slag_kg': 'Blast_Furnace_Slag_component_2kg_in_a_m3_mixture',
-    'coal_ash_kg': 'Fly_Ash_component_3kg_in_a_m3_mixture',
-    'mixing_water_kg': 'Water_component_4kg_in_a_m3_mixture',
-    'chemical_admixture_kg': 'Superplasticizer_component_5kg_in_a_m3_mixture',
-    'gravel_aggregate_kg': 'Coarse_Aggregate_component_6kg_in_a_m3_mixture',
-    'sand_aggregate_kg': 'Fine_Aggregate_component_7kg_in_a_m3_mixture',
-    'specimen_age_days': 'Age_day'
-}
-df = df.rename(columns=column_mapping)
-
-TARGET = 'compressive_strength_mpa'
-CORE_FEATURES = list(column_mapping.values())
-df_clean = df[CORE_FEATURES + [TARGET]]
-
-df_clean.dropna(subset=[TARGET], inplace=True)
-
-# 2. Handle Outliers
-for column in df_clean.columns:
-    if df_clean[column].dtype in ['int64', 'float64']:
-        Q1 = df_clean[column].quantile(0.25)
-        Q3 = df_clean[column].quantile(0.75)
-        IQR = Q3 - Q1
-        lower_bound = Q1 - 1.5 * IQR
-        upper_bound = Q3 + 1.5 * IQR
-        df_clean[column] = np.where(df_clean[column] > upper_bound, upper_bound, df_clean[column])
-        df_clean[column] = np.where(df_clean[column] < lower_bound, lower_bound, df_clean[column])
-
-# 3. Prepare Final Data and Pipeline
-X = df_clean.drop(TARGET, axis=1)
-y = df_clean[TARGET]
-
-# This pipeline uses the best configuration we found
 submission_pipeline = Pipeline([
     ('feature_engineer', FinalFeatureEngineer()),
     ('imputer', SimpleImputer(strategy='median')),
     ('scaler', StandardScaler()),
-    ('model', Ridge(alpha=10.0, random_state=42)) # Using the best alpha
+    ('model', Ridge(alpha=10.0, random_state=42))
 ])
 
 #===============Shrihari=============================================
 
+#==============ADITYA_SENGER======================
+from sklearn.base import BaseEstimator, TransformerMixin
+import numpy as np
+import pandas as pd
+import ast
+
+class CleanAndDropTransformer(BaseEstimator, TransformerMixin):
+    """
+    Transformer for cleaning and dropping columns in the concrete dataset.
+    """
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        df = X.copy()
+
+        # Drop unwanted columns
+        columns_to_remove = [
+            'Unnamed: 0','Row_ID','weird_col','strength_category',
+            'static_col','nan_col','last_modified','inspection_timestamp','batch_id',
+            'compressive_strength_duplicate','compressive_strength_mpas',
+            'is_valid_strength', 'dangerous_ratio','json_notes', 'mixing_water_kg',
+            'leaky_strength_log', 'pseudo_target', 'time_since_casting',
+            'total_binder_kg','water_cement_ratio'
+        ]
+        df.drop(columns=[col for col in columns_to_remove if col in df.columns], inplace=True, errors='ignore')
+
+        # Clean supplier_rating
+        if 'supplier_rating' in df.columns:
+            df['supplier_rating'] = (
+                df['supplier_rating']
+                .astype(str)
+                .str.strip()
+                .str.replace(' ', '', regex=False)
+                .str.upper()
+            )
+
+        # Clean is_approved column
+        if 'is_approved' in df.columns:
+            df['is_approved'] = df['is_approved'].astype(str).str.lower().str.strip()
+            mapping = {'yes': 1, 'y': 1, '1': 1, 'no': 0, 'n': 0, '0': 0}
+            df['is_approved'] = df['is_approved'].map(mapping)
+
+        # Replace infinities
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
+
+        # Absolute values for _kg columns
+        kg_cols = [col for col in df.columns if col.endswith('_kg')]
+        df[kg_cols] = df[kg_cols].abs()
+
+        # Drop numeric columns with all NaNs
+        num_cols = df.select_dtypes(include=['float64', 'int64']).columns
+        all_nan_cols = [col for col in num_cols if df[col].isna().all()]
+        df.drop(columns=all_nan_cols, inplace=True)
+
+        # Final numeric cleanup: make all numbers positive
+        for col in df.select_dtypes(include=['number']).columns:
+            df[col] = df[col].abs()
+
+        return df
+
+
+#==============ADITYA_SENGER======================
+#Dont remove the following snippet and follow the same
+
+
+# ---------------------------------------Yash_Verdhan2----------------------------------------------------------------
+import pandas as pd
+import numpy as np
+from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin
+from sklearn.linear_model import LinearRegression
+
+class BestFeatureSelector(BaseEstimator, TransformerMixin):
+    """
+    A custom transformer that selects the single best feature from a DataFrame
+    based on its absolute correlation with the target variable.
+    """
+    def __init__(self):
+        self.best_feature_ = None
+
+    def fit(self, X, y):
+        """
+        Learns which feature has the highest correlation with the target.
+        """
+        # Combine features and target to calculate correlation
+        train_df = pd.concat([X, y], axis=1)
+        target_col = y.name
+        
+        # Calculate correlations and find the best feature
+        correlations = train_df.corr(numeric_only=True)[target_col].abs().sort_values(ascending=False)
+        self.best_feature_ = correlations.index[1] # Index 0 is the target itself
+        print(f"Identified best feature: '{self.best_feature_}' (Correlation: {correlations.iloc[1]:.3f})")
+        return self
+
+    def transform(self, X):
+        """
+        Transforms the DataFrame to include only the best feature.
+        """
+        if self.best_feature_ is None:
+            raise RuntimeError("You must fit the selector before transforming.")
+        # Return a DataFrame with only the selected feature
+        return X[[self.best_feature_]]
+
+class ClippedRegression(BaseEstimator, RegressorMixin):
+    """
+    A wrapper for a regression model that clips the final predictions to ensure
+    they are within a physically realistic range (non-negative). This class
+    also handles missing values internally before fitting and predicting.
+    """
+    def __init__(self, model=LinearRegression()):
+        self.model = model
+        self.y_train_max_ = None
+        self.feature_mean_ = None # To store the mean for imputing
+
+    def fit(self, X, y):
+        """
+        Fits the underlying regression model and stores the maximum value of y
+        for clipping. It handles missing values before fitting.
+        """
+        # Ensure X is a DataFrame
+        X_df = pd.DataFrame(X)
+        
+        # Combine features and target to handle NaNs consistently
+        combined = pd.concat([X_df, pd.Series(y, name='target', index=X_df.index)], axis=1).dropna()
+        
+        # Separate cleaned data
+        X_clean = combined.drop('target', axis=1)
+        y_clean = combined['target']
+
+        # Store the mean of the feature for later imputation during prediction
+        self.feature_mean_ = X_clean.mean()
+
+        # Fit the model on clean data
+        self.model.fit(X_clean, y_clean)
+        
+        # Store the max value from the clean target data for clipping
+        self.y_train_max_ = y_clean.max()
+        return self
+
+    def predict(self, X):
+        """
+        Makes predictions with the underlying model and then clips the output.
+        """
+        if self.y_train_max_ is None:
+            raise RuntimeError("You must fit the model before making predictions.")
+
+        # Ensure X is a DataFrame and impute missing values using the stored mean
+        X_df = pd.DataFrame(X)
+        X_imputed = X_df.fillna(self.feature_mean_)
+            
+        # Make raw predictions
+        y_pred_raw = self.model.predict(X_imputed)
+        
+        # Clip predictions to be between a small positive number and a reasonable upper bound.
+        y_pred_final = np.clip(y_pred_raw, 0.1, self.y_train_max_ * 1.5)
+        return y_pred_final
+
+#===================yash verdhan ====================
+
+#==============Mouryagna=============================
+import numpy as np
+import pandas as pd
+from sklearn.base import BaseEstimator, TransformerMixin
+
+class ConcretePreprocessor(BaseEstimator, TransformerMixin):
+
+    def fit(self,X,y=None):
+        return self
+    
+    def transform(self,X):
+
+        X=pd.DataFrame(X).copy()
+
+        # converting 0/1 form
+        X['is_approved']=X['is_approved'].apply(self.convert_is_approved)
+
+        # making inf to 0
+        X.replace([np.inf, -np.inf], np.nan, inplace=True)
+        numeric_cols = ['portland_cement_kg', 'ground_slag_kg', 'coal_ash_kg','mixing_water_kg','chemical_admixture_kg', 'gravel_aggregate_kg','sand_aggregate_kg','specimen_age_days','total_binder_kg','is_approved']
+        X[numeric_cols] = X[numeric_cols].clip(-1e6, 1e6)
+        X.fillna(0, inplace=True)
+
+        # time extracting
+        X['inspection_timestamp'] = pd.to_datetime(X['inspection_timestamp'], errors='coerce')
+        X['inspection_hour'] = X['inspection_timestamp'].dt.hour
+        X['inspection_day'] = X['inspection_timestamp'].dt.day
+        X['inspection_month'] = X['inspection_timestamp'].dt.month
+
+
+        #cement grade merging
+        X['cement_grade'] = X['cement_grade'].astype(str).str.upper().str.replace('FIFTY THREE', '53')
+        X['cement_grade'] = X['cement_grade'].astype(str)
+
+        #drop unwanted columns
+        X=self.dropColumns(X)
+
+        return X
+
+    @staticmethod
+    def convert_is_approved(value):
+        if value =='YES' or value == 'yes' or value =='y' or value== '1':
+            return 1
+        else:
+            return 0
+    @staticmethod
+    def dropColumns(X):
+        dropingcolumns=['compressive_strength_duplicate','compressive_strength_mpa_str','compreesive_strength_mpa','compressive_strength_mpas','pseudo_target','static_col','nan_col','mixing_water_kg_mislabeled','json_notes','is_valid_strength','Unnamed: 0','Row_ID','last_modified','inspection_timestamp','time_since_casting','strength_category','random_noise','weird_col','batch_id','leaky_strength_log', 'water_cement_ratio', 'aggregate_binder_ratio', 'supplementary_ratio','dangerous_ratio']
+        X=X.drop(columns=dropingcolumns,errors='ignore')
+        return X
+        
+#===============Mouryagna====================
