@@ -1,3 +1,20 @@
+import pandas as pd
+import numpy as np
+from sklearn.base import TransformerMixin, BaseEstimator
+from sklearn.preprocessing import FunctionTransformer , LabelEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.cluster import KMeans
+from itertools import combinations
+from sklearn.pipeline import make_pipeline
+from imblearn.pipeline import Pipeline as ImbPipeline   
+from imblearn.over_sampling import SMOTE   
+from sklearn.linear_model import LogisticRegression   
+from splitter import split_columns
+
+import re
+
+
 #==============Your Name======================
 # Your code
 #==============Your Name=====================
@@ -38,6 +55,98 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):
         X_future['new_feature_2'] = X_future['ground_slag_kg'] + X_future['coal_ash_kg']
         return X_future
 #==========Arjun E Naik==============
+
+#=========Rudra======================
+import re
+
+from word2number import w2n
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LinearRegression
+
+# Define custom column dropper class
+class ColumnDropper(BaseEstimator, TransformerMixin):
+    def _init_(self, cols_to_drop=None):
+        self.cols_to_drop = cols_to_drop or []
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        return X.drop(columns=self.cols_to_drop, errors='ignore')
+
+# Define classes for feature engineering
+class CementGradeParser:
+    def _call_(self, X):
+        def parse(val):
+            try:
+                return float(val)
+            except:
+                val = str(val).lower().strip()
+                num_match = re.findall(r"\d+\.?\d*", val)
+                if num_match:
+                    return float(num_match[0])
+                try:
+                    return w2n.word_to_num(val)
+                except:
+                    return None
+        X['cement_grade'] = X['cement_grade'].apply(parse)
+        return X
+
+class DatePreprocessor:
+    def _call_(self, X):
+        X['last_modified'] = pd.to_datetime(X['last_modified'], errors='coerce')
+        X['last_modified_year'] = X['last_modified'].dt.year.astype('int64')
+        X['last_modified_month'] = X['last_modified'].dt.month.astype('int64')
+        X['last_modified_day'] = X['last_modified'].dt.day.astype('int64')
+        X['last_modified_weekday'] = X['last_modified'].dt.dayofweek.astype('int64')
+        X.drop(columns=['last_modified'], inplace=True)
+
+        X['inspection_timestamp'] = pd.to_datetime(X['inspection_timestamp'], errors='coerce')
+        X['inspection_year'] = X['inspection_timestamp'].dt.year.fillna(-1).astype('int64')
+        X['inspection_month'] = X['inspection_timestamp'].dt.month.fillna(-1).astype('int64')
+        X['inspection_day'] = X['inspection_timestamp'].dt.day.fillna(-1).astype('int64')
+        X['inspection_weekday'] = X['inspection_timestamp'].dt.dayofweek.fillna(-1).astype('int64')
+        X.drop(columns=['inspection_timestamp'], inplace=True)
+        return X
+
+class CategoryConverter:
+    def _call_(self, X):
+        approval_mapping = {'yes': True, 'y': True, '1': True, 'no': False, 'n': False, '0': False}
+        X['is_approved'] = X['is_approved'].astype(str).str.strip().str.lower().map(approval_mapping).astype(int)
+        rating_map = {'A ++': 6, 'A+': 5, 'AA': 4.5, 'A': 4, 'A-': 3.5, 'B': 3, 'C': 2}
+        X['supplier_rating'] = X['supplier_rating'].map(rating_map)
+        X['is_valid_strength'] = X['is_valid_strength'].astype(int)
+        X['static_col'] = X['static_col'].astype(int)
+        return X
+
+class TimeDeltaAndRatios:
+    def _call_(self, X):
+        X['time_since_casting'] = pd.to_timedelta(X['time_since_casting'], errors='coerce')
+        X['time_since_casting_days'] = X['time_since_casting'].dt.total_seconds() / (24 * 3600)
+        X.drop('time_since_casting', axis=1, inplace=True)
+        X['water_binder_ratio'] = X['mixing_water_kg'] / (X['total_binder_kg'] + 1e-6)
+        X['admixture_binder_ratio'] = X['chemical_admixture_kg'] / (X['total_binder_kg'] + 1e-6)
+        return X
+
+class RedundantDropper:
+    def _call_(self, X):
+        X.drop(columns=[
+            'time_since_casting_days', 'days_since_last_modified',
+            'days_since_inspection', 'random_noise'
+        ], inplace=True, errors='ignore')
+        return X
+
+class FinalCleaner:
+    def _call_(self, X):
+        num_cols = X.select_dtypes(include=['float64', 'int64']).columns
+        imputer = SimpleImputer(strategy='mean')
+        X[num_cols] = imputer.fit_transform(X[num_cols])
+        scaler = StandardScaler()
+        X[num_cols] = scaler.fit_transform(X[num_cols])
+        return X
+
+#===============Rudra=============
 
 #==================================shrihari=====================================================================
 
@@ -117,4 +226,5 @@ submission_pipeline = Pipeline([
     ('scaler', StandardScaler()),
     ('model', Ridge(alpha=10.0, random_state=42)) # Using the best alpha
 ])
-#============================================shrihari=======================================================================================================
+
+#===============Shrihari=============================================
